@@ -7,15 +7,12 @@ import {
   type AsambleistaConAsistencia,
   primeraAsistencia,
 } from "@/lib/types/database";
+import { fechaLocal, horaLocal } from "@/lib/format";
+import QuitarAsistenciaModal from "@/components/QuitarAsistenciaModal";
 
 type Filtro = "todos" | "presentes" | "ausentes";
 
-function horaLocal(iso: string) {
-  return new Date(iso).toLocaleTimeString("es-DO", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+const presente = (r: AsambleistaConAsistencia) => !!primeraAsistencia(r);
 
 export default function ReporteClient() {
   const supabase = createClient();
@@ -24,6 +21,7 @@ export default function ReporteClient() {
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [delegacion, setDelegacion] = useState("todas");
   const [busqueda, setBusqueda] = useState("");
+  const [quitar, setQuitar] = useState<AsambleistaConAsistencia | null>(null);
 
   async function cargar() {
     setCargando(true);
@@ -40,44 +38,47 @@ export default function ReporteClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const delegaciones = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.delegacion))).sort(),
-    [rows]
-  );
-
-  const presente = (r: AsambleistaConAsistencia) => !!primeraAsistencia(r);
-
-  const filtradas = useMemo(() => {
-    return rows.filter((r) => {
-      if (delegacion !== "todas" && r.delegacion !== delegacion) return false;
-      if (filtro === "presentes" && !presente(r)) return false;
-      if (filtro === "ausentes" && presente(r)) return false;
-      if (busqueda.trim()) {
-        const t = busqueda.trim().toLowerCase();
-        const d = busqueda.replace(/\D/g, "");
-        const okTxt = r.nombre.toLowerCase().includes(t);
-        const okNum =
-          d.length > 0 &&
-          (String(r.colegiatura).includes(d) || r.cedula_norm.includes(d));
-        if (!okTxt && !okNum) return false;
-      }
-      return true;
-    });
-  }, [rows, delegacion, filtro, busqueda]);
+  // Delegaciones en el ORDEN del Excel (primera aparición según "orden")
+  const delegaciones = useMemo(() => {
+    const seen: string[] = [];
+    for (const r of rows) if (!seen.includes(r.delegacion)) seen.push(r.delegacion);
+    return seen;
+  }, [rows]);
 
   const totalPresentes = rows.filter(presente).length;
   const pct = rows.length ? Math.round((totalPresentes / rows.length) * 100) : 0;
 
-  const resumen = useMemo(() => {
-    const m = new Map<string, { total: number; pres: number }>();
-    for (const r of rows) {
-      const e = m.get(r.delegacion) ?? { total: 0, pres: 0 };
-      e.total++;
-      if (presente(r)) e.pres++;
-      m.set(r.delegacion, e);
+  const coincide = (r: AsambleistaConAsistencia) => {
+    if (filtro === "presentes" && !presente(r)) return false;
+    if (filtro === "ausentes" && presente(r)) return false;
+    if (busqueda.trim()) {
+      const t = busqueda.trim().toLowerCase();
+      const d = busqueda.replace(/\D/g, "");
+      const okTxt = r.nombre.toLowerCase().includes(t);
+      const okNum =
+        d.length > 0 &&
+        (String(r.colegiatura).includes(d) || r.cedula_norm.includes(d));
+      if (!okTxt && !okNum) return false;
     }
-    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [rows]);
+    return true;
+  };
+
+  // Secciones por delegación (orden del Excel), con conteo total y filas filtradas
+  const secciones = useMemo(() => {
+    return delegaciones
+      .filter((d) => delegacion === "todas" || d === delegacion)
+      .map((d) => {
+        const todas = rows.filter((r) => r.delegacion === d);
+        return {
+          delegacion: d,
+          total: todas.length,
+          presentes: todas.filter(presente).length,
+          filas: todas.filter(coincide),
+        };
+      })
+      .filter((s) => s.filas.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, delegaciones, delegacion, filtro, busqueda]);
 
   function exportarCSV() {
     const enc = (s: string | number | null) => {
@@ -86,29 +87,32 @@ export default function ReporteClient() {
     };
     const head = [
       "Orden",
+      "Delegacion / Regional",
       "Nombre",
+      "Cargo",
       "Colegiatura",
       "Cedula",
       "Telefono",
-      "Delegacion",
       "Plancha",
-      "Cargo",
-      "Presente",
+      "Asistio",
+      "Fecha",
       "Hora",
       "Registrado por",
     ];
+    // Exporta respetando el orden del Excel
     const lines = rows.map((r) => {
       const a = primeraAsistencia(r);
       return [
         r.orden,
+        r.delegacion,
         r.nombre,
+        r.cargo,
         r.colegiatura,
         r.cedula,
         r.telefono,
-        r.delegacion,
         r.plancha,
-        r.cargo,
         a ? "SI" : "NO",
+        a ? fechaLocal(a.hora) : "",
         a ? horaLocal(a.hora) : "",
         a?.registrado_nombre ?? "",
       ]
@@ -128,17 +132,13 @@ export default function ReporteClient() {
     URL.revokeObjectURL(url);
   }
 
-  async function desmarcar(r: AsambleistaConAsistencia) {
-    if (!confirm(`¿Quitar la asistencia de ${r.nombre}?`)) return;
-    await supabase.from("asistencia").delete().eq("asambleista_id", r.id);
-    await cargar();
-  }
-
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-codia-dark">Reporte de asistencia</h1>
+          <h1 className="text-xl font-bold text-codia-dark">
+            Reporte de asistencia
+          </h1>
           <p className="text-sm text-gray-500">
             {totalPresentes} de {rows.length} presentes ({pct}%)
           </p>
@@ -159,28 +159,8 @@ export default function ReporteClient() {
         </div>
       </div>
 
-      {/* Resumen por delegación */}
-      <details className="mb-5 rounded-xl border border-gray-200 bg-white p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-codia-dark">
-          Resumen por delegación / regional
-        </summary>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {resumen.map(([d, e]) => (
-            <div
-              key={d}
-              className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm"
-            >
-              <span className="truncate pr-2 text-gray-700">{d}</span>
-              <span className="shrink-0 font-semibold tabular-nums text-gray-900">
-                {e.pres}/{e.total}
-              </span>
-            </div>
-          ))}
-        </div>
-      </details>
-
       {/* Filtros */}
-      <div className="mb-4 grid gap-2 sm:grid-cols-3">
+      <div className="mb-5 grid gap-2 sm:grid-cols-3">
         <input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
@@ -210,80 +190,103 @@ export default function ReporteClient() {
         </select>
       </div>
 
-      {/* Tabla */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-            <tr>
-              <th className="px-3 py-2">Nombre</th>
-              <th className="px-3 py-2">Coleg.</th>
-              <th className="px-3 py-2 hidden md:table-cell">Delegación</th>
-              <th className="px-3 py-2">Estado</th>
-              <th className="px-3 py-2 hidden sm:table-cell">Hora</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {cargando ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
-                  <Loader2 className="mx-auto animate-spin" />
-                </td>
-              </tr>
-            ) : filtradas.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
-                  Sin resultados
-                </td>
-              </tr>
-            ) : (
-              filtradas.map((r) => {
-                const a = primeraAsistencia(r);
-                return (
-                  <tr key={r.id} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 font-medium text-gray-900">
-                      {r.nombre}
-                      <span className="block text-xs text-gray-400 md:hidden">
-                        {r.delegacion}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-gray-600">
-                      {r.colegiatura}
-                    </td>
-                    <td className="px-3 py-2 hidden text-gray-600 md:table-cell">
-                      {r.delegacion}
-                    </td>
-                    <td className="px-3 py-2">
-                      {a ? (
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                          Presente
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
-                          Ausente
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 hidden text-gray-500 sm:table-cell">
-                      {a ? horaLocal(a.hora) : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {a && (
-                        <button
-                          onClick={() => desmarcar(r)}
-                          className="text-xs font-medium text-red-500 hover:underline"
-                        >
-                          Quitar
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      {cargando ? (
+        <div className="py-12 text-center text-gray-400">
+          <Loader2 className="mx-auto animate-spin" />
+        </div>
+      ) : secciones.length === 0 ? (
+        <p className="py-12 text-center text-gray-400">Sin resultados</p>
+      ) : (
+        <div className="space-y-4">
+          {secciones.map((s) => (
+            <details
+              key={s.delegacion}
+              open
+              className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+            >
+              <summary className="flex cursor-pointer items-center justify-between gap-2 bg-codia px-4 py-2.5 text-white">
+                <span className="text-sm font-bold uppercase tracking-wide">
+                  {s.delegacion}
+                </span>
+                <span className="shrink-0 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold tabular-nums">
+                  {s.presentes}/{s.total} presentes
+                </span>
+              </summary>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2">Nombre</th>
+                      <th className="px-3 py-2">Cargo</th>
+                      <th className="px-3 py-2">Coleg.</th>
+                      <th className="px-3 py-2 hidden sm:table-cell">Cédula</th>
+                      <th className="px-3 py-2">Estado</th>
+                      <th className="px-3 py-2 hidden md:table-cell">
+                        Fecha y hora
+                      </th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {s.filas.map((r) => {
+                      const a = primeraAsistencia(r);
+                      return (
+                        <tr key={r.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-gray-900">
+                            {r.nombre}
+                          </td>
+                          <td className="px-3 py-2 text-gray-600">
+                            {r.cargo || "—"}
+                          </td>
+                          <td className="px-3 py-2 tabular-nums text-gray-600">
+                            {r.colegiatura}
+                          </td>
+                          <td className="px-3 py-2 hidden text-gray-600 sm:table-cell">
+                            {r.cedula}
+                          </td>
+                          <td className="px-3 py-2">
+                            {a ? (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                Presente
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                                Ausente
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 hidden whitespace-nowrap text-gray-500 md:table-cell">
+                            {a ? `${fechaLocal(a.hora)} ${horaLocal(a.hora)}` : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {a && (
+                              <button
+                                onClick={() => setQuitar(r)}
+                                className="text-xs font-medium text-red-500 hover:underline"
+                              >
+                                Quitar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
+
+      {quitar && (
+        <QuitarAsistenciaModal
+          asambleistaId={quitar.id}
+          nombre={quitar.nombre}
+          onClose={() => setQuitar(null)}
+          onDone={cargar}
+        />
+      )}
     </main>
   );
 }

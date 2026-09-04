@@ -2,26 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import {
-  Search,
-  CheckCircle2,
-  Loader2,
-  UserCheck,
-  X,
-  BadgeCheck,
-} from "lucide-react";
+import { Search, Loader2, UserCheck, X, BadgeCheck } from "lucide-react";
 import {
   type AsambleistaConAsistencia,
   type Rol,
   primeraAsistencia,
 } from "@/lib/types/database";
-
-function horaLocal(iso: string) {
-  return new Date(iso).toLocaleTimeString("es-DO", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { fechaHoraLocal } from "@/lib/format";
+import QuitarAsistenciaModal from "@/components/QuitarAsistenciaModal";
 
 export default function RegistroClient({
   rol,
@@ -32,12 +20,14 @@ export default function RegistroClient({
 }) {
   const supabase = createClient();
   const [q, setQ] = useState("");
+  const [modoTexto, setModoTexto] = useState(false); // false = teclado numérico
   const [buscando, setBuscando] = useState(false);
   const [resultados, setResultados] = useState<AsambleistaConAsistencia[] | null>(
     null
   );
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [marcandoId, setMarcandoId] = useState<number | null>(null);
+  const [quitar, setQuitar] = useState<AsambleistaConAsistencia | null>(null);
   const [total, setTotal] = useState(0);
   const [presentes, setPresentes] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -110,14 +100,6 @@ export default function RegistroClient({
     await Promise.all([buscar(), cargarConteos()]);
   }
 
-  async function desmarcar(a: AsambleistaConAsistencia) {
-    if (!confirm(`¿Quitar la asistencia de ${a.nombre}?`)) return;
-    setMarcandoId(a.id);
-    await supabase.from("asistencia").delete().eq("asambleista_id", a.id);
-    setMarcandoId(null);
-    await Promise.all([buscar(), cargarConteos()]);
-  }
-
   function limpiar() {
     setQ("");
     setResultados(null);
@@ -132,15 +114,32 @@ export default function RegistroClient({
       {/* Contador en vivo */}
       <div className="mb-6 grid grid-cols-3 gap-3">
         <Stat label="Presentes" value={presentes} accent="text-emerald-600" />
-        <Stat label="Faltan" value={Math.max(total - presentes, 0)} accent="text-gray-500" />
+        <Stat
+          label="Faltan"
+          value={Math.max(total - presentes, 0)}
+          accent="text-gray-500"
+        />
         <Stat label="% asistencia" value={`${pct}%`} accent="text-codia" />
       </div>
 
       {/* Buscador */}
       <form onSubmit={buscar} className="mb-4">
-        <label className="mb-1.5 block text-sm font-medium text-gray-700">
-          Número de colegiatura, cédula o nombre
-        </label>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label className="block text-sm font-medium text-gray-700">
+            Número de colegiatura, cédula o nombre
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setModoTexto((v) => !v);
+              inputRef.current?.focus();
+            }}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            title="Cambiar teclado"
+          >
+            {modoTexto ? "123 Números" : "ABC Nombre"}
+          </button>
+        </div>
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search
@@ -151,9 +150,11 @@ export default function RegistroClient({
               ref={inputRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              inputMode="text"
-              className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-9 outline-none focus:border-codia focus:ring-2 focus:ring-codia/20"
-              placeholder="Ej. 34129  ó  025-0039280-4"
+              inputMode={modoTexto ? "text" : "numeric"}
+              enterKeyHint="search"
+              autoComplete="off"
+              className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-9 text-lg outline-none focus:border-codia focus:ring-2 focus:ring-codia/20"
+              placeholder={modoTexto ? "Nombre del asambleísta" : "Ej. 34129"}
             />
             {q && (
               <button
@@ -206,10 +207,23 @@ export default function RegistroClient({
                   </p>
                   <p className="text-sm text-gray-600">{a.delegacion}</p>
                   <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
-                    <span>Colegiatura: <b className="text-gray-700">{a.colegiatura}</b></span>
-                    <span>Cédula: <b className="text-gray-700">{a.cedula}</b></span>
-                    {a.cargo && <span>Cargo: <b className="text-gray-700">{a.cargo}</b></span>}
-                    {a.plancha && <span>Plancha: <b className="text-gray-700">{a.plancha}</b></span>}
+                    <span>
+                      Colegiatura:{" "}
+                      <b className="text-gray-700">{a.colegiatura}</b>
+                    </span>
+                    <span>
+                      Cédula: <b className="text-gray-700">{a.cedula}</b>
+                    </span>
+                    {a.cargo && (
+                      <span>
+                        Cargo: <b className="text-gray-700">{a.cargo}</b>
+                      </span>
+                    )}
+                    {a.plancha && (
+                      <span>
+                        Plancha: <b className="text-gray-700">{a.plancha}</b>
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -219,14 +233,15 @@ export default function RegistroClient({
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1.5 text-sm font-semibold text-emerald-700">
                         <BadgeCheck size={18} /> Registrado
                       </span>
-                      <span className="text-xs text-gray-500">
-                        {horaLocal(asis!.hora)}
-                        {asis!.registrado_nombre ? ` · ${asis!.registrado_nombre}` : ""}
+                      <span className="text-right text-xs text-gray-500">
+                        {fechaHoraLocal(asis!.hora)}
+                        {asis!.registrado_nombre
+                          ? ` · ${asis!.registrado_nombre}`
+                          : ""}
                       </span>
                       {rol === "admin" && (
                         <button
-                          onClick={() => desmarcar(a)}
-                          disabled={marcandoId === a.id}
+                          onClick={() => setQuitar(a)}
                           className="text-xs font-medium text-red-500 hover:underline"
                         >
                           Quitar asistencia
@@ -258,6 +273,15 @@ export default function RegistroClient({
         <p className="mt-3 text-center text-xs text-gray-400">
           {resultados.length} coincidencias — seleccione la persona correcta.
         </p>
+      )}
+
+      {quitar && (
+        <QuitarAsistenciaModal
+          asambleistaId={quitar.id}
+          nombre={quitar.nombre}
+          onClose={() => setQuitar(null)}
+          onDone={() => Promise.all([buscar(), cargarConteos()])}
+        />
       )}
     </main>
   );
