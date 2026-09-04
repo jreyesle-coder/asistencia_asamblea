@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: #f4f6fb;
+  color: #1a1f36;
+}
+
+/* Evita zoom automático en iOS al enfocar inputs */
+input,
+select,
+button {
+  font-size: 16px;
+}
