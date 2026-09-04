@@ -256,14 +256,12 @@ export default function RegistroClient({
                           ? ` · ${asis!.registrado_nombre}`
                           : ""}
                       </span>
-                      {rol === "admin" && (
-                        <button
-                          onClick={() => setQuitar(a)}
-                          className="text-xs font-medium text-red-500 hover:underline"
-                        >
-                          Quitar asistencia
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setQuitar(a)}
+                        className="text-xs font-medium text-red-500 hover:underline"
+                      >
+                        Quitar asistencia
+                      </button>
                     </div>
                   ) : (
                     <button

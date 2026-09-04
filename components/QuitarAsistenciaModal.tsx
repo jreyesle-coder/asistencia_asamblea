@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { createClient as createSbClient } from "@supabase/supabase-js";
 import { Loader2, ShieldAlert, X } from "lucide-react";
 
 export default function QuitarAsistenciaModal({
@@ -15,7 +15,7 @@ export default function QuitarAsistenciaModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const supabase = createClient();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -25,33 +25,49 @@ export default function QuitarAsistenciaModal({
     setError(null);
     setLoading(true);
 
-    // 1) Re-autenticar: confirmar que es el admin quien autoriza
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user?.email) {
-      setError("Sesión no válida. Vuelva a iniciar sesión.");
-      setLoading(false);
-      return;
-    }
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: user.email,
+    // Cliente EFÍMERO: no persiste sesión, así no cambia la sesión activa
+    // del operador que está registrando en la tableta/celular.
+    const aprobador = createSbClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          storageKey: "codia-aprobador",
+        },
+      }
+    );
+
+    const { error: authError } = await aprobador.auth.signInWithPassword({
+      email: email.trim(),
       password,
     });
     if (authError) {
-      setError("Contraseña incorrecta. No se quitó la asistencia.");
+      setError("Correo o contraseña del administrador incorrectos.");
       setLoading(false);
       return;
     }
 
-    // 2) Quitar la asistencia
-    const { error: delError } = await supabase
+    // Borra usando el token del administrador. Si quien aprueba NO es admin,
+    // el RLS filtra la fila y no se elimina nada (data vacío) -> no autorizado.
+    const { data, error: delError } = await aprobador
       .from("asistencia")
       .delete()
-      .eq("asambleista_id", asambleistaId);
+      .eq("asambleista_id", asambleistaId)
+      .select();
+
+    await aprobador.auth.signOut();
     setLoading(false);
+
     if (delError) {
       setError("No se pudo quitar la asistencia. Intente de nuevo.");
+      return;
+    }
+    if (!data || data.length === 0) {
+      setError(
+        "Ese usuario no está autorizado para eliminar asistencias (se requiere un administrador)."
+      );
       return;
     }
     onDone();
@@ -83,15 +99,25 @@ export default function QuitarAsistenciaModal({
 
         <p className="mb-4 text-sm text-gray-600">
           Vas a quitar la asistencia de{" "}
-          <b className="text-gray-900">{nombre}</b>. Para confirmar, ingresa la
-          contraseña del administrador.
+          <b className="text-gray-900">{nombre}</b>. Esta acción debe ser
+          autorizada por un <b>administrador</b> con su correo y contraseña.
         </p>
 
         <form onSubmit={confirmar} className="space-y-3">
           <input
-            type="password"
+            type="email"
             autoFocus
             required
+            autoComplete="off"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Correo del administrador"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-codia focus:ring-2 focus:ring-codia/20"
+          />
+          <input
+            type="password"
+            required
+            autoComplete="off"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contraseña del administrador"
@@ -116,7 +142,7 @@ export default function QuitarAsistenciaModal({
               className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}
-              Quitar asistencia
+              Autorizar y quitar
             </button>
           </div>
         </form>
