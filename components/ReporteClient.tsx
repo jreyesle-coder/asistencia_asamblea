@@ -248,6 +248,7 @@ export default function ReporteClient() {
                       <th className="px-3 py-2 hidden md:table-cell">
                         Fecha y hora
                       </th>
+                      <th className="px-3 py-2 hidden md:table-cell">Registró</th>
                       <th className="px-3 py-2 print:hidden"></th>
                     </tr>
                   </thead>
@@ -281,6 +282,9 @@ export default function ReporteClient() {
                           </td>
                           <td className="px-3 py-2 hidden whitespace-nowrap text-gray-500 md:table-cell">
                             {a ? `${fechaLocal(a.hora)} ${horaLocal(a.hora)}` : "—"}
+                          </td>
+                          <td className="px-3 py-2 hidden text-gray-600 md:table-cell">
+                            {a?.registrado_nombre ?? "—"}
                           </td>
                           <td className="px-3 py-2 text-right print:hidden">
                             {a && (
