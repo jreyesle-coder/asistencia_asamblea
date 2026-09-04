@@ -26,6 +26,7 @@ export default function RegistroClient({
     null
   );
   const [mensaje, setMensaje] = useState<string | null>(null);
+  const [exito, setExito] = useState<string | null>(null);
   const [marcandoId, setMarcandoId] = useState<number | null>(null);
   const [quitar, setQuitar] = useState<AsambleistaConAsistencia | null>(null);
   const [total, setTotal] = useState(0);
@@ -54,6 +55,7 @@ export default function RegistroClient({
     if (!term) return;
     setBuscando(true);
     setMensaje(null);
+    setExito(null);
     setResultados(null);
 
     const digits = term.replace(/\D/g, "");
@@ -94,16 +96,25 @@ export default function RegistroClient({
     });
     setMarcandoId(null);
     if (error) {
-      // 23505 = ya existe (marcado por otra estación)
-      setMensaje("No se pudo marcar. Es posible que ya esté registrado.");
+      // 23505 = ya existe (marcado por otra estación): mostramos la ficha
+      setMensaje(`${a.nombre} ya estaba registrado.`);
+      await Promise.all([buscar(), cargarConteos()]);
+      return;
     }
-    await Promise.all([buscar(), cargarConteos()]);
+    // Éxito: limpiar el buscador y quedar listo para el siguiente
+    setExito(`✓ ${a.nombre} — asistencia registrada`);
+    setQ("");
+    setResultados(null);
+    setMensaje(null);
+    inputRef.current?.focus();
+    cargarConteos();
   }
 
   function limpiar() {
     setQ("");
     setResultados(null);
     setMensaje(null);
+    setExito(null);
     inputRef.current?.focus();
   }
 
@@ -181,6 +192,12 @@ export default function RegistroClient({
           </button>
         </div>
       </form>
+
+      {exito && (
+        <div className="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+          {exito}
+        </div>
+      )}
 
       {mensaje && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Download, Loader2, RefreshCw } from "lucide-react";
+import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import {
   type AsambleistaConAsistencia,
   primeraAsistencia,
@@ -132,9 +132,27 @@ export default function ReporteClient() {
     URL.revokeObjectURL(url);
   }
 
+  function imprimir() {
+    document
+      .querySelectorAll<HTMLDetailsElement>("details")
+      .forEach((d) => (d.open = true));
+    setTimeout(() => window.print(), 100);
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      {/* Encabezado solo para impresión */}
+      <div className="mb-4 hidden print:block">
+        <h1 className="text-lg font-bold">
+          CODIA — Reporte de asistencia · Asamblea 2026-2027
+        </h1>
+        <p className="text-sm">
+          {totalPresentes} de {rows.length} presentes ({pct}%) · Impreso:{" "}
+          {new Date().toLocaleString("es-DO")}
+        </p>
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-xl font-bold text-codia-dark">
             Reporte de asistencia
@@ -151,6 +169,12 @@ export default function ReporteClient() {
             <RefreshCw size={16} /> Actualizar
           </button>
           <button
+            onClick={imprimir}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Printer size={16} /> Imprimir
+          </button>
+          <button
             onClick={exportarCSV}
             className="inline-flex items-center gap-2 rounded-lg bg-codia px-4 py-2 text-sm font-semibold text-white hover:bg-codia-dark"
           >
@@ -160,7 +184,7 @@ export default function ReporteClient() {
       </div>
 
       {/* Filtros */}
-      <div className="mb-5 grid gap-2 sm:grid-cols-3">
+      <div className="mb-5 grid gap-2 sm:grid-cols-3 print:hidden">
         <input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
@@ -224,7 +248,7 @@ export default function ReporteClient() {
                       <th className="px-3 py-2 hidden md:table-cell">
                         Fecha y hora
                       </th>
-                      <th className="px-3 py-2"></th>
+                      <th className="px-3 py-2 print:hidden"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -258,7 +282,7 @@ export default function ReporteClient() {
                           <td className="px-3 py-2 hidden whitespace-nowrap text-gray-500 md:table-cell">
                             {a ? `${fechaLocal(a.hora)} ${horaLocal(a.hora)}` : "—"}
                           </td>
-                          <td className="px-3 py-2 text-right">
+                          <td className="px-3 py-2 text-right print:hidden">
                             {a && (
                               <button
                                 onClick={() => setQuitar(r)}

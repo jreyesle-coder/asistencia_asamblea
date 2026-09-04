@@ -10,7 +10,7 @@ export default function Header({
   rol: Rol;
 }) {
   return (
-    <header className="bg-codia text-white shadow-md">
+    <header className="bg-codia text-white shadow-md no-print">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="flex h-10 items-center rounded-md bg-white px-2 py-1">
