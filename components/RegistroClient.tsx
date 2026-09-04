@@ -10,7 +10,11 @@ import {
   X,
   BadgeCheck,
 } from "lucide-react";
-import { type AsambleistaConAsistencia, type Rol } from "@/lib/types/database";
+import {
+  type AsambleistaConAsistencia,
+  type Rol,
+  primeraAsistencia,
+} from "@/lib/types/database";
 
 function horaLocal(iso: string) {
   return new Date(iso).toLocaleTimeString("es-DO", {
@@ -186,7 +190,7 @@ export default function RegistroClient({
       {/* Resultados */}
       <div className="space-y-3">
         {resultados?.map((a) => {
-          const asis = a.asistencia && a.asistencia.length > 0 ? a.asistencia[0] : null;
+          const asis = primeraAsistencia(a);
           const presente = !!asis;
           return (
             <div

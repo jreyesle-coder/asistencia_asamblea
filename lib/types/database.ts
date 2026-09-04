@@ -21,6 +21,19 @@ export interface Asistencia {
   registrado_nombre: string | null;
 }
 
+// PostgREST devuelve el embed como OBJETO cuando la relación es uno-a-uno
+// (asistencia.asambleista_id es UNIQUE), o como ARREGLO en otros casos.
+// Manejamos ambos para evitar depender de esa heurística.
+export type AsistenciaEmbed = Asistencia | Asistencia[] | null;
+
 export interface AsambleistaConAsistencia extends Asambleista {
-  asistencia: Asistencia[] | null;
+  asistencia: AsistenciaEmbed;
+}
+
+export function primeraAsistencia(
+  a: AsambleistaConAsistencia
+): Asistencia | null {
+  const x = a.asistencia;
+  if (!x) return null;
+  return Array.isArray(x) ? x[0] ?? null : x;
 }

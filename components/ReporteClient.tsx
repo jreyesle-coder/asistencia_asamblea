@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Download, Loader2, RefreshCw } from "lucide-react";
-import { type AsambleistaConAsistencia } from "@/lib/types/database";
+import {
+  type AsambleistaConAsistencia,
+  primeraAsistencia,
+} from "@/lib/types/database";
 
 type Filtro = "todos" | "presentes" | "ausentes";
 
@@ -42,8 +45,7 @@ export default function ReporteClient() {
     [rows]
   );
 
-  const presente = (r: AsambleistaConAsistencia) =>
-    !!(r.asistencia && r.asistencia.length > 0);
+  const presente = (r: AsambleistaConAsistencia) => !!primeraAsistencia(r);
 
   const filtradas = useMemo(() => {
     return rows.filter((r) => {
@@ -96,7 +98,7 @@ export default function ReporteClient() {
       "Registrado por",
     ];
     const lines = rows.map((r) => {
-      const a = r.asistencia && r.asistencia.length > 0 ? r.asistencia[0] : null;
+      const a = primeraAsistencia(r);
       return [
         r.orden,
         r.nombre,
@@ -236,8 +238,7 @@ export default function ReporteClient() {
               </tr>
             ) : (
               filtradas.map((r) => {
-                const a =
-                  r.asistencia && r.asistencia.length > 0 ? r.asistencia[0] : null;
+                const a = primeraAsistencia(r);
                 return (
                   <tr key={r.id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 font-medium text-gray-900">
