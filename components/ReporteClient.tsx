@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import {
@@ -15,28 +15,43 @@ type Filtro = "todos" | "presentes" | "ausentes";
 const presente = (r: AsambleistaConAsistencia) => !!primeraAsistencia(r);
 
 export default function ReporteClient() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<AsambleistaConAsistencia[]>([]);
   const [cargando, setCargando] = useState(true);
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [delegacion, setDelegacion] = useState("todas");
   const [busqueda, setBusqueda] = useState("");
   const [quitar, setQuitar] = useState<AsambleistaConAsistencia | null>(null);
+  const [ultimaAct, setUltimaAct] = useState<Date | null>(null);
 
-  async function cargar() {
-    setCargando(true);
+  const cargar = useCallback(async () => {
     const { data } = await supabase
       .from("asambleistas")
       .select("*, asistencia(id,hora,registrado_nombre)")
       .order("orden");
     setRows((data as AsambleistaConAsistencia[]) ?? []);
+    setUltimaAct(new Date());
     setCargando(false);
-  }
+  }, [supabase]);
 
   useEffect(() => {
     cargar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Respaldo: refresca el reporte cada 5 s
+    const id = setInterval(cargar, 5000);
+    // Tiempo real: cualquier cambio en asistencia refresca al instante
+    const canal = supabase
+      .channel("asistencia-reporte")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "asistencia" },
+        () => cargar()
+      )
+      .subscribe();
+    return () => {
+      clearInterval(id);
+      supabase.removeChannel(canal);
+    };
+  }, [cargar, supabase]);
 
   // Delegaciones en el ORDEN del Excel (primera aparición según "orden")
   const delegaciones = useMemo(() => {
@@ -159,6 +174,10 @@ export default function ReporteClient() {
           </h1>
           <p className="text-sm text-gray-500">
             {totalPresentes} de {rows.length} presentes ({pct}%)
+          </p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400 print:hidden">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+            En vivo{ultimaAct ? ` · actualizado ${ultimaAct.toLocaleTimeString("es-DO")}` : ""}
           </p>
         </div>
         <div className="flex gap-2">

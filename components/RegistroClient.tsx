@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Search, Loader2, UserCheck, X, BadgeCheck } from "lucide-react";
 import {
@@ -18,7 +18,7 @@ export default function RegistroClient({
   rol: Rol;
   nombreUsuario: string;
 }) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [q, setQ] = useState("");
   const [modoTexto, setModoTexto] = useState(false); // false = teclado numérico
   const [buscando, setBuscando] = useState(false);
@@ -44,10 +44,23 @@ export default function RegistroClient({
 
   useEffect(() => {
     cargarConteos();
-    const id = setInterval(cargarConteos, 20000);
     inputRef.current?.focus();
-    return () => clearInterval(id);
-  }, [cargarConteos]);
+    // Respaldo: refresca los conteos cada 5 s
+    const id = setInterval(cargarConteos, 5000);
+    // Tiempo real: cualquier cambio en asistencia refresca al instante
+    const canal = supabase
+      .channel("asistencia-registro")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "asistencia" },
+        () => cargarConteos()
+      )
+      .subscribe();
+    return () => {
+      clearInterval(id);
+      supabase.removeChannel(canal);
+    };
+  }, [cargarConteos, supabase]);
 
   async function buscar(e?: React.FormEvent) {
     e?.preventDefault();
@@ -123,6 +136,10 @@ export default function RegistroClient({
   return (
     <main className="mx-auto max-w-4xl px-4 py-6">
       {/* Contador en vivo */}
+      <div className="mb-2 flex items-center gap-1.5 text-xs text-gray-500">
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+        En vivo — se actualiza solo
+      </div>
       <div className="mb-6 grid grid-cols-3 gap-3">
         <Stat label="Presentes" value={presentes} accent="text-emerald-600" />
         <Stat
