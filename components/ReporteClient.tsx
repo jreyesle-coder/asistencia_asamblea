@@ -14,7 +14,11 @@ type Filtro = "todos" | "presentes" | "ausentes";
 
 const presente = (r: AsambleistaConAsistencia) => !!primeraAsistencia(r);
 
-export default function ReporteClient() {
+export default function ReporteClient({
+  asambleaNombre,
+}: {
+  asambleaNombre?: string | null;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<AsambleistaConAsistencia[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -159,7 +163,7 @@ export default function ReporteClient() {
       {/* Encabezado solo para impresión */}
       <div className="mb-4 hidden print:block">
         <h1 className="text-lg font-bold">
-          CODIA — Reporte de asistencia · Asamblea 2026-2027
+          CODIA — Reporte de asistencia{asambleaNombre ? ` · ${asambleaNombre}` : ""}
         </h1>
         <p className="text-sm">
           {totalPresentes} de {rows.length} presentes ({pct}%) · Impreso:{" "}

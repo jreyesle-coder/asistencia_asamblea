@@ -30,6 +30,27 @@ export interface AsambleistaConAsistencia extends Asambleista {
   asistencia: AsistenciaEmbed;
 }
 
+export interface Asamblea {
+  id: number;
+  nombre: string;
+  fecha: string | null;
+  estado: "activa" | "cerrada";
+}
+
+export interface HistoricoRow {
+  id: number;
+  asamblea_id: number;
+  orden: number | null;
+  nombre: string;
+  colegiatura: number | null;
+  cedula: string | null;
+  delegacion: string | null;
+  cargo: string | null;
+  presente: boolean;
+  hora: string | null;
+  registrado_nombre: string | null;
+}
+
 export function primeraAsistencia(
   a: AsambleistaConAsistencia
 ): Asistencia | null {
