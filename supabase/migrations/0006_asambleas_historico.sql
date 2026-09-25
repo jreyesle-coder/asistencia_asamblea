@@ -1,7 +1,9 @@
 -- =====================================================================
--- CODIA · Multi-asamblea: cierra Asamblea 1 (05/09/2026) al historico,
--- crea la Asamblea del 26/09/2026 (activa) y recarga el roster a 91.
--- Ejecutar UNA vez en Supabase -> SQL Editor.
+-- CODIA · Multi-asamblea (migracion 0006)
+-- Cierra la Asamblea del 05/09/2026 al historico, crea la del 26/09/2026
+-- (activa) y recarga el roster a los 91 asambleistas del archivo nuevo.
+-- SEGURA de re-ejecutar (guardas evitan doble-archivo o borrar asistencia real).
+-- Ejecutar en Supabase -> SQL Editor.
 -- =====================================================================
 
 -- 1) Tabla de asambleas
@@ -30,7 +32,7 @@ create table if not exists historico_asistencia (
 create index if not exists historico_asistencia_asamblea_idx on historico_asistencia(asamblea_id);
 
 -- 3) RLS: el staff puede leer asambleas e historico
-alter table asambleas          enable row level security;
+alter table asambleas            enable row level security;
 alter table historico_asistencia enable row level security;
 drop policy if exists "staff lee asambleas" on asambleas;
 create policy "staff lee asambleas" on asambleas for select using (is_staff());
@@ -45,21 +47,27 @@ insert into asambleas (nombre, fecha, estado)
 select 'Asamblea 26/09/2026', date '2026-09-26', 'activa'
 where not exists (select 1 from asambleas where fecha = date '2026-09-26');
 
--- 5) Snapshot del roster + asistencia de la Asamblea 1 al historico
---    (usa el roster ACTUAL, que es el de la Asamblea 1, ANTES de recargar)
-delete from historico_asistencia
-where asamblea_id = (select id from asambleas where fecha = date '2026-09-05');
+-- 5) Snapshot de la Asamblea 1 al historico (SOLO si aun no fue archivada)
 insert into historico_asistencia
   (asamblea_id, orden, nombre, colegiatura, cedula, delegacion, cargo, presente, hora, registrado_nombre)
 select (select id from asambleas where fecha = date '2026-09-05'),
        a.orden, a.nombre, a.colegiatura, a.cedula, a.delegacion, a.cargo,
        (asi.id is not null), asi.hora, asi.registrado_nombre
 from asambleistas a
-left join asistencia asi on asi.asambleista_id = a.id;
+left join asistencia asi on asi.asambleista_id = a.id
+where not exists (
+  select 1 from historico_asistencia h
+  where h.asamblea_id = (select id from asambleas where fecha = date '2026-09-05')
+);
 
--- 6) Recargar el roster a la lista nueva (91) y dejar la asistencia en 0
-truncate table asistencia, asambleistas restart identity cascade;
-insert into asambleistas (orden, nombre, colegiatura, cedula, telefono, delegacion, cargo) values
+-- 6) Recargar el roster a 91 y dejar la asistencia en 0
+--    SOLO si el roster todavia no es el nuevo (evita borrar asistencia real
+--    de la asamblea del 26 si el script se corre por error una 2da vez).
+do $$
+begin
+  if (select count(*) from asambleistas) <> 91 then
+    truncate table asistencia, asambleistas restart identity cascade;
+    insert into asambleistas (orden, nombre, colegiatura, cedula, telefono, delegacion, cargo) values
 (1, 'Arq. George Ant. Richardson Rodriguez', 34129, '025-0039280-4', '849-357-9908', 'JUNTA DIRECTIVA NACIONAL', 'Presidente Nacional'),
 (2, 'Ing. Civ. Cesar Ant. Ramirez', 44450, '001-1638415-7', '829-512-7003', 'JUNTA DIRECTIVA NACIONAL', 'Secretario General'),
 (3, 'Agrim. Rafael Aug. Ferreras Ramirez', 5781, null, '829-648-1702', 'JUNTA DIRECTIVA NACIONAL', 'Tesorero Nacional'),
@@ -151,3 +159,5 @@ insert into asambleistas (orden, nombre, colegiatura, cedula, telefono, delegaci
 (89, 'Ing. Quim. Narciso E. Suero', 8892, '001-0535132-4', '809-828-6496', 'REGIONAL SUR DEL VALLE - SAN JUAN DE LA MAGUANA', 'Secretario de Actas'),
 (90, 'Arq. Ismael Rosario', 48226, '012-0124021-3', '809-376-8710', 'REGIONAL SUR DEL VALLE - SAN JUAN DE LA MAGUANA', 'Secretario de Educación y Eventos'),
 (91, 'Ing. Elect. Miguel Peña Perez', 9607, '001-0317108-8', '809-474-5396', 'REGIONAL SUR DEL VALLE - SAN JUAN DE LA MAGUANA', 'Secretario de Asuntos Intergremiales');
+  end if;
+end $$;
