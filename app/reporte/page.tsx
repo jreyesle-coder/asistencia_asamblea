@@ -15,7 +15,7 @@ export default async function ReportePage() {
   return (
     <div className="min-h-screen">
       <Header nombre={sesion.nombre} rol={sesion.rol} asamblea={asamblea} />
-      <ReporteClient asambleaNombre={asamblea?.nombre ?? null} />
+      <ReporteClient asambleaActiva={asamblea} />
     </div>
   );
 }

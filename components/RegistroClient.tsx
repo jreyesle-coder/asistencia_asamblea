@@ -2,23 +2,28 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Search, Loader2, UserCheck, X, BadgeCheck } from "lucide-react";
+import { Search, Loader2, UserCheck, X, BadgeCheck, Lock, CalendarPlus } from "lucide-react";
 import {
   type AsambleistaConAsistencia,
+  type Asamblea,
   type Rol,
   primeraAsistencia,
 } from "@/lib/types/database";
 import { fechaHoraLocal } from "@/lib/format";
 import QuitarAsistenciaModal from "@/components/QuitarAsistenciaModal";
+import AbrirAsambleaModal from "@/components/AbrirAsambleaModal";
 
 export default function RegistroClient({
   rol,
   nombreUsuario,
+  asambleaActiva,
 }: {
   rol: Rol;
   nombreUsuario: string;
+  asambleaActiva: Asamblea | null;
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const [abrirOpen, setAbrirOpen] = useState(false);
   const [q, setQ] = useState("");
   const [modoTexto, setModoTexto] = useState(false); // false = teclado numérico
   const [buscando, setBuscando] = useState(false);
@@ -132,6 +137,37 @@ export default function RegistroClient({
   }
 
   const pct = total ? Math.round((presentes / total) * 100) : 0;
+
+  // Sin asamblea abierta: el registro queda bloqueado
+  if (!asambleaActiva) {
+    return (
+      <main className="mx-auto max-w-lg px-4 py-16">
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+          <Lock className="mx-auto mb-3 text-gray-400" size={40} />
+          <h2 className="text-lg font-bold text-codia-dark">
+            No hay una asamblea abierta
+          </h2>
+          <p className="mt-2 text-sm text-gray-600">
+            El registro de asistencia está deshabilitado. Un administrador debe
+            abrir una asamblea para poder registrar.
+          </p>
+          {rol === "admin" ? (
+            <button
+              onClick={() => setAbrirOpen(true)}
+              className="mt-5 inline-flex items-center gap-2 rounded-lg bg-codia px-5 py-2.5 font-semibold text-white transition hover:bg-codia-dark"
+            >
+              <CalendarPlus size={18} /> Abrir asamblea
+            </button>
+          ) : (
+            <p className="mt-5 text-xs text-gray-400">
+              Espera a que un administrador abra la asamblea.
+            </p>
+          )}
+        </div>
+        {abrirOpen && <AbrirAsambleaModal onClose={() => setAbrirOpen(false)} />}
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6">

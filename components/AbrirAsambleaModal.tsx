@@ -2,34 +2,42 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, AlertTriangle, X } from "lucide-react";
+import { Loader2, CalendarPlus, X } from "lucide-react";
 
-export default function CerrarAsambleaModal({
-  asambleaActual,
+function hoyISO() {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+}
+
+export default function AbrirAsambleaModal({
   onClose,
 }: {
-  asambleaActual: string | null;
   onClose: () => void;
 }) {
   const supabase = createClient();
-  const [confirmacion, setConfirmacion] = useState("");
+  const [fecha, setFecha] = useState(hoyISO());
+  const [nombre, setNombre] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const habilitado = confirmacion.trim().toUpperCase() === "CERRAR";
-
-  async function cerrar(e: React.FormEvent) {
+  async function abrir(e: React.FormEvent) {
     e.preventDefault();
-    if (!habilitado) return;
+    if (!fecha) return;
     setError(null);
     setLoading(true);
-    const { error } = await supabase.rpc("cerrar_asamblea");
+    const { error } = await supabase.rpc("abrir_asamblea", {
+      p_nombre: nombre.trim(),
+      p_fecha: fecha,
+    });
     if (error) {
       setLoading(false);
       setError(
-        error.message?.includes("autorizado")
+        error.message?.includes("Ya hay")
+          ? "Ya hay una asamblea abierta."
+          : error.message?.includes("autorizado")
           ? "No autorizado: se requiere un administrador."
-          : "No se pudo cerrar la asamblea. Intente de nuevo."
+          : "No se pudo abrir la asamblea. Intente de nuevo."
       );
       return;
     }
@@ -46,9 +54,9 @@ export default function CerrarAsambleaModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between">
-          <div className="flex items-center gap-2 text-amber-600">
-            <AlertTriangle size={22} />
-            <h2 className="text-lg font-bold">Cerrar asamblea</h2>
+          <div className="flex items-center gap-2 text-codia-dark">
+            <CalendarPlus size={22} />
+            <h2 className="text-lg font-bold">Abrir asamblea</h2>
           </div>
           <button
             onClick={onClose}
@@ -59,24 +67,33 @@ export default function CerrarAsambleaModal({
           </button>
         </div>
 
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Se va a <b>archivar</b> la asamblea actual
-          {asambleaActual ? ` (${asambleaActual})` : ""} en el Histórico y se
-          cerrará. <b>Quedará sin asamblea abierta</b>, por lo que no se podrá
-          registrar asistencia hasta que abras una nueva.
-        </div>
+        <p className="mb-4 text-sm text-gray-600">
+          Se habilitará el registro de asistencia para una nueva asamblea (en
+          0). El listado de asambleístas se mantiene igual.
+        </p>
 
-        <form onSubmit={cerrar} className="space-y-3">
+        <form onSubmit={abrir} className="space-y-3">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
-              Para confirmar, escribe <b>CERRAR</b>
+              Fecha de la asamblea
+            </label>
+            <input
+              type="date"
+              required
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-codia focus:ring-2 focus:ring-codia/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Nombre (opcional)
             </label>
             <input
               type="text"
-              autoFocus
-              value={confirmacion}
-              onChange={(e) => setConfirmacion(e.target.value)}
-              placeholder="CERRAR"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Se genera de la fecha si lo dejas vacío"
               className="w-full rounded-lg border border-gray-300 px-3 py-2.5 outline-none focus:border-codia focus:ring-2 focus:ring-codia/20"
             />
           </div>
@@ -97,11 +114,11 @@ export default function CerrarAsambleaModal({
             </button>
             <button
               type="submit"
-              disabled={!habilitado || loading}
-              className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              disabled={!fecha || loading}
+              className="flex items-center gap-2 rounded-lg bg-codia px-4 py-2 text-sm font-semibold text-white hover:bg-codia-dark disabled:opacity-50"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}
-              Cerrar y archivar
+              Abrir asamblea
             </button>
           </div>
         </form>

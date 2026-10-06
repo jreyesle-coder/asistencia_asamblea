@@ -14,7 +14,11 @@ export default async function RegistroPage() {
   return (
     <div className="min-h-screen">
       <Header nombre={sesion.nombre} rol={sesion.rol} asamblea={asamblea} />
-      <RegistroClient rol={sesion.rol} nombreUsuario={sesion.nombre} />
+      <RegistroClient
+        rol={sesion.rol}
+        nombreUsuario={sesion.nombre}
+        asambleaActiva={asamblea}
+      />
     </div>
   );
 }

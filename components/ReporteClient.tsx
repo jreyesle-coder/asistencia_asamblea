@@ -2,24 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Download, Loader2, Printer, RefreshCw, Archive } from "lucide-react";
+import { Download, Loader2, Printer, RefreshCw, Archive, CalendarPlus } from "lucide-react";
 import {
   type AsambleistaConAsistencia,
+  type Asamblea,
   primeraAsistencia,
 } from "@/lib/types/database";
 import { fechaLocal, horaLocal } from "@/lib/format";
 import QuitarAsistenciaModal from "@/components/QuitarAsistenciaModal";
 import CerrarAsambleaModal from "@/components/CerrarAsambleaModal";
+import AbrirAsambleaModal from "@/components/AbrirAsambleaModal";
 
 type Filtro = "todos" | "presentes" | "ausentes";
 
 const presente = (r: AsambleistaConAsistencia) => !!primeraAsistencia(r);
 
 export default function ReporteClient({
-  asambleaNombre,
+  asambleaActiva,
 }: {
-  asambleaNombre?: string | null;
+  asambleaActiva: Asamblea | null;
 }) {
+  const asambleaNombre = asambleaActiva?.nombre ?? null;
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<AsambleistaConAsistencia[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -28,6 +31,7 @@ export default function ReporteClient({
   const [busqueda, setBusqueda] = useState("");
   const [quitar, setQuitar] = useState<AsambleistaConAsistencia | null>(null);
   const [cerrarOpen, setCerrarOpen] = useState(false);
+  const [abrirOpen, setAbrirOpen] = useState(false);
   const [ultimaAct, setUltimaAct] = useState<Date | null>(null);
 
   const cargar = useCallback(async () => {
@@ -205,12 +209,21 @@ export default function ReporteClient({
           >
             <Download size={16} /> Exportar CSV
           </button>
-          <button
-            onClick={() => setCerrarOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
-          >
-            <Archive size={16} /> Cerrar asamblea
-          </button>
+          {asambleaActiva ? (
+            <button
+              onClick={() => setCerrarOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+            >
+              <Archive size={16} /> Cerrar asamblea
+            </button>
+          ) : (
+            <button
+              onClick={() => setAbrirOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-codia bg-white px-4 py-2 text-sm font-semibold text-codia hover:bg-codia/5"
+            >
+              <CalendarPlus size={16} /> Abrir asamblea
+            </button>
+          )}
         </div>
       </div>
 
@@ -353,6 +366,8 @@ export default function ReporteClient({
           onClose={() => setCerrarOpen(false)}
         />
       )}
+
+      {abrirOpen && <AbrirAsambleaModal onClose={() => setAbrirOpen(false)} />}
     </main>
   );
 }

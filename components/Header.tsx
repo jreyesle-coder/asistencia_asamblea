@@ -22,7 +22,7 @@ export default function Header({
           <div className="leading-tight">
             <p className="text-sm font-semibold sm:text-base">Asamblea CODIA</p>
             <p className="text-[11px] text-white/70 sm:text-xs">
-              {asamblea ? asamblea.nombre : "Validación de asistencia"}
+              {asamblea ? asamblea.nombre : "Sin asamblea abierta"}
             </p>
           </div>
         </div>
