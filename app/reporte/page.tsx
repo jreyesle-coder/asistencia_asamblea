@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function ReportePage() {
   const sesion = await getSessionConRol();
   if (!sesion) redirect("/login");
-  if (sesion.rol !== "admin") redirect("/");
+  if (!["admin", "tecnologia", "presidente"].includes(sesion.rol)) redirect("/");
   const asamblea = await getAsambleaActiva();
 
   return (

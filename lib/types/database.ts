@@ -1,4 +1,28 @@
-export type Rol = "admin" | "registrador";
+export type Rol = "admin" | "registrador" | "presidente" | "tecnologia";
+
+export type OpcionVoto = "favor" | "contra" | "abstencion";
+
+export interface Iniciativa {
+  id: number;
+  asamblea_id: number;
+  titulo: string;
+  descripcion: string | null;
+  estado: "abierta" | "cerrada";
+  creada_por: string | null;
+  abierta_at: string;
+  cerrada_at: string | null;
+}
+
+export interface Voto {
+  id: number;
+  iniciativa_id: number;
+  asambleista_id: number;
+  asambleista_nombre: string | null;
+  colegiatura: number | null;
+  delegacion: string | null;
+  opcion: OpcionVoto;
+  hora: string;
+}
 
 export interface Asambleista {
   id: number;

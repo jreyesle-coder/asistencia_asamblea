@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Search, Loader2, UserCheck, X, BadgeCheck, Lock, CalendarPlus } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   type AsambleistaConAsistencia,
   type Asamblea,
@@ -12,6 +13,13 @@ import {
 import { fechaHoraLocal } from "@/lib/format";
 import QuitarAsistenciaModal from "@/components/QuitarAsistenciaModal";
 import AbrirAsambleaModal from "@/components/AbrirAsambleaModal";
+
+interface Credencial {
+  nombre: string;
+  token: string;
+  codigo: string;
+  yaEstaba: boolean;
+}
 
 export default function RegistroClient({
   rol,
@@ -31,7 +39,8 @@ export default function RegistroClient({
     null
   );
   const [mensaje, setMensaje] = useState<string | null>(null);
-  const [exito, setExito] = useState<string | null>(null);
+  const [credencial, setCredencial] = useState<Credencial | null>(null);
+  const [origin, setOrigin] = useState("");
   const [marcandoId, setMarcandoId] = useState<number | null>(null);
   const [quitar, setQuitar] = useState<AsambleistaConAsistencia | null>(null);
   const [total, setTotal] = useState(0);
@@ -48,6 +57,7 @@ export default function RegistroClient({
   }, [supabase]);
 
   useEffect(() => {
+    setOrigin(window.location.origin);
     cargarConteos();
     inputRef.current?.focus();
     // Respaldo: refresca los conteos cada 5 s
@@ -73,7 +83,7 @@ export default function RegistroClient({
     if (!term) return;
     setBuscando(true);
     setMensaje(null);
-    setExito(null);
+    setCredencial(null);
     setResultados(null);
 
     const digits = term.replace(/\D/g, "");
@@ -108,19 +118,37 @@ export default function RegistroClient({
 
   async function marcar(a: AsambleistaConAsistencia) {
     setMarcandoId(a.id);
-    const { error } = await supabase.from("asistencia").insert({
-      asambleista_id: a.id,
-      registrado_nombre: nombreUsuario,
-    });
+    const { data, error } = await supabase
+      .from("asistencia")
+      .insert({ asambleista_id: a.id, registrado_nombre: nombreUsuario })
+      .select("voto_token,voto_codigo")
+      .single();
     setMarcandoId(null);
     if (error) {
-      // 23505 = ya existe (marcado por otra estación): mostramos la ficha
-      setMensaje(`${a.nombre} ya estaba registrado.`);
-      await Promise.all([buscar(), cargarConteos()]);
-      return;
+      // Ya estaba registrado: traemos su credencial existente para re-mostrarla
+      const { data: ex } = await supabase
+        .from("asistencia")
+        .select("voto_token,voto_codigo")
+        .eq("asambleista_id", a.id)
+        .single();
+      if (ex) {
+        setCredencial({
+          nombre: a.nombre,
+          token: ex.voto_token,
+          codigo: ex.voto_codigo,
+          yaEstaba: true,
+        });
+      } else {
+        setMensaje(`${a.nombre}: no se pudo registrar.`);
+      }
+    } else {
+      setCredencial({
+        nombre: a.nombre,
+        token: data.voto_token,
+        codigo: data.voto_codigo,
+        yaEstaba: false,
+      });
     }
-    // Éxito: limpiar el buscador y quedar listo para el siguiente
-    setExito(`✓ ${a.nombre} — asistencia registrada`);
     setQ("");
     setResultados(null);
     setMensaje(null);
@@ -132,7 +160,7 @@ export default function RegistroClient({
     setQ("");
     setResultados(null);
     setMensaje(null);
-    setExito(null);
+    setCredencial(null);
     inputRef.current?.focus();
   }
 
@@ -246,9 +274,39 @@ export default function RegistroClient({
         </div>
       </form>
 
-      {exito && (
-        <div className="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-          {exito}
+      {credencial && (
+        <div className="mb-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4">
+          <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+            <div className="rounded-lg bg-white p-2 shadow-sm">
+              {origin && (
+                <QRCodeSVG
+                  value={`${origin}/votar?t=${credencial.token}`}
+                  size={132}
+                  level="M"
+                />
+              )}
+            </div>
+            <div className="min-w-0 flex-1 text-center sm:text-left">
+              <p className="text-sm font-bold text-emerald-800">
+                {credencial.yaEstaba ? "Ya estaba registrado" : "✓ Asistencia registrada"}
+                : {credencial.nombre}
+              </p>
+              <p className="mt-1 text-sm text-gray-700">
+                Para votar, que <b>escanee este código</b> con su teléfono, o que
+                ingrese en <b>asamblea.rogapp.com/votar</b>:
+              </p>
+              <p className="mt-2 text-xs text-gray-500">Código de votante</p>
+              <p className="font-mono text-2xl font-extrabold tracking-widest text-codia-dark">
+                {credencial.codigo}
+              </p>
+              <button
+                onClick={limpiar}
+                className="mt-3 rounded-lg bg-codia px-4 py-2 text-sm font-semibold text-white hover:bg-codia-dark"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

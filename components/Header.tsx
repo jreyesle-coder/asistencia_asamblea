@@ -27,28 +27,36 @@ export default function Header({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {rol === "admin" && (
-            <>
-              <Link
-                href="/"
-                className="rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium transition hover:bg-white/20"
-              >
-                Registro
-              </Link>
-              <Link
-                href="/reporte"
-                className="rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium transition hover:bg-white/20"
-              >
-                Reporte
-              </Link>
-              <Link
-                href="/historico"
-                className="rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium transition hover:bg-white/20"
-              >
-                Histórico
-              </Link>
-            </>
-          )}
+          {(() => {
+            const esAdmin = rol === "admin" || rol === "tecnologia";
+            const verReportes = esAdmin || rol === "presidente";
+            const verVotacion = rol === "presidente" || rol === "tecnologia";
+            const cls =
+              "rounded-md bg-white/10 px-3 py-1.5 text-sm font-medium transition hover:bg-white/20";
+            if (!verReportes && !verVotacion) return null;
+            return (
+              <>
+                <Link href="/" className={cls}>
+                  Registro
+                </Link>
+                {verVotacion && (
+                  <Link href="/votacion" className={cls}>
+                    Votación
+                  </Link>
+                )}
+                {verReportes && (
+                  <Link href="/reporte" className={cls}>
+                    Reporte
+                  </Link>
+                )}
+                {verReportes && (
+                  <Link href="/historico" className={cls}>
+                    Histórico
+                  </Link>
+                )}
+              </>
+            );
+          })()}
           <span className="hidden text-sm text-white/80 sm:inline">
             {nombre}
           </span>
