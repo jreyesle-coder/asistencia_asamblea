@@ -5,13 +5,25 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Loader2 } from "lucide-react";
 
-export default function LoginForm() {
+export default function LoginForm({
+  sinPerfil = null,
+}: {
+  sinPerfil?: string | null;
+}) {
   const router = useRouter();
   const supabase = createClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saliendo, setSaliendo] = useState(false);
+
+  async function salir() {
+    setSaliendo(true);
+    await supabase.auth.signOut();
+    router.refresh();
+    setSaliendo(false);
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,6 +53,24 @@ export default function LoginForm() {
           </h1>
           <p className="text-sm text-gray-500">Acceso del personal de registro</p>
         </div>
+
+        {sinPerfil && (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p>
+              <b>{sinPerfil}</b> inició sesión pero <b>no tiene un perfil activo</b>{" "}
+              en la app. Pide a Tecnología que le asigne un rol (admin,
+              registrador, presidente o tecnología).
+            </p>
+            <button
+              type="button"
+              onClick={salir}
+              disabled={saliendo}
+              className="mt-2 rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+            >
+              {saliendo ? "Saliendo…" : "Cerrar sesión y entrar con otro usuario"}
+            </button>
+          </div>
+        )}
 
         <form onSubmit={onSubmit} className="space-y-4">
           <div>

@@ -1,8 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Search, Loader2, UserCheck, X, BadgeCheck, Lock, CalendarPlus } from "lucide-react";
+import {
+  Search,
+  Loader2,
+  UserCheck,
+  X,
+  BadgeCheck,
+  Lock,
+  CalendarPlus,
+  QrCode,
+} from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   type AsambleistaConAsistencia,
@@ -31,6 +41,9 @@ export default function RegistroClient({
   asambleaActiva: Asamblea | null;
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+  const esAdmin = rol === "admin" || rol === "tecnologia";
+  const activaIdProp = asambleaActiva?.id ?? null;
   const [abrirOpen, setAbrirOpen] = useState(false);
   const [q, setQ] = useState("");
   const [modoTexto, setModoTexto] = useState(false); // false = teclado numérico
@@ -48,13 +61,21 @@ export default function RegistroClient({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const cargarConteos = useCallback(async () => {
-    const [{ count: t }, { count: p }] = await Promise.all([
-      supabase.from("asambleistas").select("*", { count: "exact", head: true }),
-      supabase.from("asistencia").select("*", { count: "exact", head: true }),
-    ]);
+    const [{ count: t }, { count: p }, { data: act, error: eAct }] =
+      await Promise.all([
+        supabase.from("asambleistas").select("*", { count: "exact", head: true }),
+        supabase.from("asistencia").select("*", { count: "exact", head: true }),
+        supabase.from("asambleas").select("id").eq("estado", "activa").limit(1),
+      ]);
     setTotal(t ?? 0);
     setPresentes(p ?? 0);
-  }, [supabase]);
+    // Si otro dispositivo abrió o cerró la asamblea, recargamos el estado del
+    // servidor para bloquear/desbloquear el registro sin recargar a mano.
+    if (!eAct) {
+      const activaId = (act?.[0] as { id: number } | undefined)?.id ?? null;
+      if (activaId !== activaIdProp) router.refresh();
+    }
+  }, [supabase, router, activaIdProp]);
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -116,8 +137,36 @@ export default function RegistroClient({
     setResultados(data as AsambleistaConAsistencia[]);
   }
 
+  function mostrarCredencial(c: Credencial) {
+    setCredencial(c);
+    setQ("");
+    setResultados(null);
+    setMensaje(null);
+    inputRef.current?.focus();
+  }
+
+  // Re-muestra la credencial (QR + código) de alguien ya registrado
+  async function verCredencial(a: AsambleistaConAsistencia, yaEstaba = true) {
+    const { data: ex, error } = await supabase
+      .from("asistencia")
+      .select("voto_token,voto_codigo")
+      .eq("asambleista_id", a.id)
+      .single();
+    if (error || !ex) {
+      setMensaje(`${a.nombre}: no se pudo obtener la credencial de votante.`);
+      return;
+    }
+    mostrarCredencial({
+      nombre: a.nombre,
+      token: ex.voto_token,
+      codigo: ex.voto_codigo,
+      yaEstaba,
+    });
+  }
+
   async function marcar(a: AsambleistaConAsistencia) {
     setMarcandoId(a.id);
+    setMensaje(null);
     const { data, error } = await supabase
       .from("asistencia")
       .insert({ asambleista_id: a.id, registrado_nombre: nombreUsuario })
@@ -125,34 +174,28 @@ export default function RegistroClient({
       .single();
     setMarcandoId(null);
     if (error) {
-      // Ya estaba registrado: traemos su credencial existente para re-mostrarla
-      const { data: ex } = await supabase
-        .from("asistencia")
-        .select("voto_token,voto_codigo")
-        .eq("asambleista_id", a.id)
-        .single();
-      if (ex) {
-        setCredencial({
-          nombre: a.nombre,
-          token: ex.voto_token,
-          codigo: ex.voto_codigo,
-          yaEstaba: true,
-        });
-      } else {
-        setMensaje(`${a.nombre}: no se pudo registrar.`);
+      if (error.code === "23505") {
+        // Ya estaba registrado (otra mesa lo marcó): re-mostramos su credencial
+        await verCredencial(a, true);
+        cargarConteos();
+        return;
       }
-    } else {
-      setCredencial({
-        nombre: a.nombre,
-        token: data.voto_token,
-        codigo: data.voto_codigo,
-        yaEstaba: false,
-      });
+      // Cualquier otro fallo se muestra y se conservan los resultados en pantalla
+      setMensaje(
+        `${a.nombre}: no se pudo registrar. ${
+          error.code === "42501"
+            ? "La asamblea no está abierta o no tienes permiso."
+            : error.message || "Revisa la conexión e inténtalo de nuevo."
+        }`
+      );
+      return;
     }
-    setQ("");
-    setResultados(null);
-    setMensaje(null);
-    inputRef.current?.focus();
+    mostrarCredencial({
+      nombre: a.nombre,
+      token: data.voto_token,
+      codigo: data.voto_codigo,
+      yaEstaba: false,
+    });
     cargarConteos();
   }
 
@@ -179,7 +222,7 @@ export default function RegistroClient({
             El registro de asistencia está deshabilitado. Un administrador debe
             abrir una asamblea para poder registrar.
           </p>
-          {rol === "admin" ? (
+          {esAdmin ? (
             <button
               onClick={() => setAbrirOpen(true)}
               className="mt-5 inline-flex items-center gap-2 rounded-lg bg-codia px-5 py-2.5 font-semibold text-white transition hover:bg-codia-dark"
@@ -293,7 +336,7 @@ export default function RegistroClient({
               </p>
               <p className="mt-1 text-sm text-gray-700">
                 Para votar, que <b>escanee este código</b> con su teléfono, o que
-                ingrese en <b>asamblea.rogapp.com/votar</b>:
+                ingrese en <b>{origin.replace(/^https?:\/\//, "")}/votar</b>:
               </p>
               <p className="mt-2 text-xs text-gray-500">Código de votante</p>
               <p className="font-mono text-2xl font-extrabold tracking-widest text-codia-dark">
@@ -367,6 +410,12 @@ export default function RegistroClient({
                           ? ` · ${asis!.registrado_nombre}`
                           : ""}
                       </span>
+                      <button
+                        onClick={() => verCredencial(a, true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-codia px-3 py-1.5 text-xs font-semibold text-codia hover:bg-codia/5"
+                      >
+                        <QrCode size={14} /> Ver credencial
+                      </button>
                       <button
                         onClick={() => setQuitar(a)}
                         className="text-xs font-medium text-red-500 hover:underline"

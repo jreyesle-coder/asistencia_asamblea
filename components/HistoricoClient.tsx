@@ -3,14 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Download, Loader2, Printer } from "lucide-react";
-import { type Asamblea, type HistoricoRow } from "@/lib/types/database";
+import {
+  type Asamblea,
+  type HistoricoRow,
+  type Iniciativa,
+  type Voto,
+} from "@/lib/types/database";
 import { fechaLocal, horaLocal } from "@/lib/format";
+import VotacionesLista from "@/components/VotacionesLista";
 
 export default function HistoricoClient() {
   const supabase = useMemo(() => createClient(), []);
   const [asambleas, setAsambleas] = useState<Asamblea[]>([]);
   const [selId, setSelId] = useState<number | null>(null);
   const [rows, setRows] = useState<HistoricoRow[]>([]);
+  const [iniciativas, setIniciativas] = useState<Iniciativa[]>([]);
+  const [votos, setVotos] = useState<Record<number, Voto[]>>({});
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -18,7 +26,8 @@ export default function HistoricoClient() {
       const { data } = await supabase
         .from("asambleas")
         .select("*")
-        .order("fecha", { ascending: false });
+        .order("fecha", { ascending: false })
+        .order("id", { ascending: false });
       const list = (data as Asamblea[]) ?? [];
       setAsambleas(list);
       const cerrada = list.find((a) => a.estado === "cerrada") ?? list[0];
@@ -29,12 +38,30 @@ export default function HistoricoClient() {
 
   const cargarRows = useCallback(
     async (id: number) => {
-      const { data } = await supabase
-        .from("historico_asistencia")
-        .select("*")
-        .eq("asamblea_id", id)
-        .order("orden");
+      const [{ data }, { data: inis }] = await Promise.all([
+        supabase
+          .from("historico_asistencia")
+          .select("*")
+          .eq("asamblea_id", id)
+          .order("orden"),
+        supabase
+          .from("iniciativas")
+          .select("*")
+          .eq("asamblea_id", id)
+          .order("id"),
+      ]);
       setRows((data as HistoricoRow[]) ?? []);
+      // Votaciones de la asamblea (los votos quedan en BD aunque se cierre)
+      const lista = (inis as Iniciativa[]) ?? [];
+      const res = await Promise.all(
+        lista.map((i) =>
+          supabase.from("votos").select("*").eq("iniciativa_id", i.id).order("hora")
+        )
+      );
+      const map: Record<number, Voto[]> = {};
+      lista.forEach((i, k) => (map[i.id] = (res[k].data as Voto[]) ?? []));
+      setIniciativas(lista);
+      setVotos(map);
     },
     [supabase]
   );
@@ -248,6 +275,16 @@ export default function HistoricoClient() {
               </div>
             </details>
           ))}
+        </div>
+      )}
+
+      {!cargando && (
+        <div className="mt-8">
+          <VotacionesLista
+            iniciativas={iniciativas}
+            votos={votos}
+            titulo="Votaciones de esta asamblea"
+          />
         </div>
       )}
     </main>

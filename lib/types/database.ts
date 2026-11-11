@@ -43,6 +43,9 @@ export interface Asistencia {
   hora: string;
   registrado_por: string | null;
   registrado_nombre: string | null;
+  // Credencial de votante (migración 0009); sólo se pide cuando hace falta
+  voto_token?: string;
+  voto_codigo?: string;
 }
 
 // PostgREST devuelve el embed como OBJETO cuando la relación es uno-a-uno

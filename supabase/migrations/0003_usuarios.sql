@@ -22,3 +22,20 @@ on conflict (id) do update
   set nombre = excluded.nombre, rol = excluded.rol, activo = true;
 
 -- Repita el bloque anterior por cada mesa/usuario adicional.
+
+-- Presidente (somete iniciativas a votación; ve Reporte e Histórico). Requiere 0009.
+insert into profiles (id, nombre, rol)
+select id, 'Presidente', 'presidente'
+from auth.users
+where email = 'presidente@asamblea.app'
+on conflict (id) do update
+  set nombre = excluded.nombre, rol = excluded.rol, activo = true;
+
+-- Tecnología (respaldo con acceso total: registro, reporte, abrir/cerrar
+-- asamblea y votaciones). Requiere 0009.
+insert into profiles (id, nombre, rol)
+select id, 'Tecnología', 'tecnologia'
+from auth.users
+where email = 'tecnologia@asamblea.app'
+on conflict (id) do update
+  set nombre = excluded.nombre, rol = excluded.rol, activo = true;

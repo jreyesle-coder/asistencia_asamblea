@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Download, Loader2, Printer, RefreshCw, Archive, CalendarPlus } from "lucide-react";
 import {
   type AsambleistaConAsistencia,
   type Asamblea,
+  type Rol,
   primeraAsistencia,
 } from "@/lib/types/database";
 import { fechaLocal, horaLocal } from "@/lib/format";
@@ -19,10 +21,17 @@ const presente = (r: AsambleistaConAsistencia) => !!primeraAsistencia(r);
 
 export default function ReporteClient({
   asambleaActiva,
+  rol,
 }: {
   asambleaActiva: Asamblea | null;
+  rol: Rol;
 }) {
   const asambleaNombre = asambleaActiva?.nombre ?? null;
+  const activaIdProp = asambleaActiva?.id ?? null;
+  // Abrir/cerrar asamblea y quitar asistencia exigen is_admin() en la BD
+  // (admin o tecnología); al presidente no se le ofrecen esos controles.
+  const esAdmin = rol === "admin" || rol === "tecnologia";
+  const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<AsambleistaConAsistencia[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -35,14 +44,22 @@ export default function ReporteClient({
   const [ultimaAct, setUltimaAct] = useState<Date | null>(null);
 
   const cargar = useCallback(async () => {
-    const { data } = await supabase
-      .from("asambleistas")
-      .select("*, asistencia(id,hora,registrado_nombre)")
-      .order("orden");
+    const [{ data }, { data: act, error: eAct }] = await Promise.all([
+      supabase
+        .from("asambleistas")
+        .select("*, asistencia(id,hora,registrado_nombre)")
+        .order("orden"),
+      supabase.from("asambleas").select("id").eq("estado", "activa").limit(1),
+    ]);
     setRows((data as AsambleistaConAsistencia[]) ?? []);
     setUltimaAct(new Date());
     setCargando(false);
-  }, [supabase]);
+    // Si otro dispositivo abrió/cerró la asamblea, refrescamos el estado del servidor
+    if (!eAct) {
+      const activaId = (act?.[0] as { id: number } | undefined)?.id ?? null;
+      if (activaId !== activaIdProp) router.refresh();
+    }
+  }, [supabase, router, activaIdProp]);
 
   useEffect(() => {
     cargar();
@@ -209,21 +226,22 @@ export default function ReporteClient({
           >
             <Download size={16} /> Exportar CSV
           </button>
-          {asambleaActiva ? (
-            <button
-              onClick={() => setCerrarOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
-            >
-              <Archive size={16} /> Cerrar asamblea
-            </button>
-          ) : (
-            <button
-              onClick={() => setAbrirOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-codia bg-white px-4 py-2 text-sm font-semibold text-codia hover:bg-codia/5"
-            >
-              <CalendarPlus size={16} /> Abrir asamblea
-            </button>
-          )}
+          {esAdmin &&
+            (asambleaActiva ? (
+              <button
+                onClick={() => setCerrarOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100"
+              >
+                <Archive size={16} /> Cerrar asamblea
+              </button>
+            ) : (
+              <button
+                onClick={() => setAbrirOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-codia bg-white px-4 py-2 text-sm font-semibold text-codia hover:bg-codia/5"
+              >
+                <CalendarPlus size={16} /> Abrir asamblea
+              </button>
+            ))}
         </div>
       </div>
 
@@ -331,7 +349,7 @@ export default function ReporteClient({
                             {a?.registrado_nombre ?? "—"}
                           </td>
                           <td className="px-3 py-2 text-right print:hidden">
-                            {a && (
+                            {a && esAdmin && (
                               <button
                                 onClick={() => setQuitar(r)}
                                 className="text-xs font-medium text-red-500 hover:underline"

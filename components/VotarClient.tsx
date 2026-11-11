@@ -1,8 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, CheckCircle2, ThumbsUp, ThumbsDown, MinusCircle } from "lucide-react";
+import {
+  Loader2,
+  CheckCircle2,
+  ThumbsUp,
+  ThumbsDown,
+  MinusCircle,
+  WifiOff,
+  AlertTriangle,
+} from "lucide-react";
 import { type OpcionVoto } from "@/lib/types/database";
 
 const TOKEN_KEY = "codia_voto_token";
@@ -29,21 +37,26 @@ const OPCIONES: {
   { key: "abstencion", label: "Abstención", cls: "bg-gray-500 hover:bg-gray-600", Icon: MinusCircle },
 ];
 
-function etiqueta(o: OpcionVoto | null | undefined) {
-  return OPCIONES.find((x) => x.key === o)?.label ?? "";
+function opcionDe(o: OpcionVoto | null | undefined) {
+  return OPCIONES.find((x) => x.key === o) ?? null;
 }
 
 export default function VotarClient() {
   const supabase = useMemo(() => createClient(), []);
   const [token, setToken] = useState<string | null>(null);
+  const [tokenListo, setTokenListo] = useState(false);
   const [sesion, setSesion] = useState<Sesion | null>(null);
-  const [cargando, setCargando] = useState(true);
-  const [enviando, setEnviando] = useState<OpcionVoto | null>(null);
+  const [intentado, setIntentado] = useState(false); // ya hubo una respuesta (o fallo)
+  const [sinConexion, setSinConexion] = useState(false);
+  const [credencialInvalida, setCredencialInvalida] = useState(false);
+  const [seleccion, setSeleccion] = useState<OpcionVoto | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
   // fallback por código
   const [col, setCol] = useState("");
   const [codigo, setCodigo] = useState("");
   const [errFallback, setErrFallback] = useState<string | null>(null);
-  const yaVotoAnterior = useRef<number | null>(null);
+  const [entrando, setEntrando] = useState(false);
 
   // Tomar token del URL (?t=) o del almacenamiento local
   useEffect(() => {
@@ -57,47 +70,99 @@ export default function VotarClient() {
     } else {
       setToken(localStorage.getItem(TOKEN_KEY));
     }
+    setTokenListo(true);
   }, []);
 
   const cargar = useCallback(async () => {
     if (!token) return;
-    const { data } = await supabase.rpc("votante_sesion", { p_token: token });
-    setSesion((data as Sesion) ?? { ok: false, motivo: "token" });
-    setCargando(false);
+    const { data, error } = await supabase.rpc("votante_sesion", { p_token: token });
+    setIntentado(true);
+    if (error || !data) {
+      // Fallo de red/servidor: conservamos la sesión anterior y avisamos
+      setSinConexion(true);
+      return;
+    }
+    setSinConexion(false);
+    const s = data as Sesion;
+    if (!s.ok) {
+      // Credencial inválida (asistencia eliminada o asamblea cerrada)
+      localStorage.removeItem(TOKEN_KEY);
+      setCredencialInvalida(true);
+      setSesion(null);
+      setToken(null);
+      return;
+    }
+    setSesion(s);
   }, [supabase, token]);
 
   // Poll cada 3 s para detectar nuevas votaciones
   useEffect(() => {
-    if (!token) {
-      setCargando(false);
-      return;
-    }
+    if (!token) return;
     cargar();
     const id = setInterval(cargar, 3000);
     return () => clearInterval(id);
   }, [token, cargar]);
 
-  async function votar(opcion: OpcionVoto) {
-    if (!token) return;
-    setEnviando(opcion);
-    await supabase.rpc("emitir_voto", { p_token: token, p_opcion: opcion });
+  // Si cambia la iniciativa en pantalla, descartamos cualquier selección previa
+  const iniId = sesion?.iniciativa?.id ?? null;
+  useEffect(() => {
+    setSeleccion(null);
+    setAviso(null);
+  }, [iniId]);
+
+  async function confirmar() {
+    if (!token || !seleccion || !sesion?.iniciativa) return;
+    setEnviando(true);
+    setAviso(null);
+    const args = { p_token: token, p_opcion: seleccion };
+    let { data, error } = await supabase.rpc("emitir_voto", {
+      ...args,
+      p_iniciativa_id: sesion.iniciativa.id,
+    });
+    if (error && /p_iniciativa_id|PGRST202|find the function/i.test(error.message ?? "")) {
+      // Base de datos sin la migración 0010: firma anterior sin iniciativa
+      ({ data, error } = await supabase.rpc("emitir_voto", args));
+    }
+    setEnviando(false);
+    if (error) {
+      setAviso("No se pudo enviar tu voto. Revisa la conexión e inténtalo de nuevo.");
+      return;
+    }
+    const r = data as { ok: boolean; motivo?: string };
+    if (!r?.ok) {
+      setAviso(
+        r?.motivo === "cambio"
+          ? "La votación cambió mientras elegías. Revisa la nueva iniciativa y vota de nuevo."
+          : r?.motivo === "cerrada"
+          ? "La votación se cerró antes de recibir tu voto."
+          : "Tu credencial ya no es válida. Acércate a la mesa de registro."
+      );
+    }
+    setSeleccion(null);
     await cargar();
-    setEnviando(null);
   }
 
   async function entrarPorCodigo(e: React.FormEvent) {
     e.preventDefault();
     setErrFallback(null);
-    const { data } = await supabase.rpc("votante_por_codigo", {
+    setEntrando(true);
+    const { data, error } = await supabase.rpc("votante_por_codigo", {
       p_colegiatura: Number(col.replace(/\D/g, "")),
       p_codigo: codigo.trim(),
     });
+    setEntrando(false);
+    if (error) {
+      setErrFallback("Sin conexión. Inténtalo de nuevo.");
+      return;
+    }
     const r = data as { ok: boolean; token?: string };
     if (!r?.ok || !r.token) {
       setErrFallback("Colegiatura o código incorrecto, o no estás registrado.");
       return;
     }
     localStorage.setItem(TOKEN_KEY, r.token);
+    setCredencialInvalida(false);
+    setSesion(null);
     setToken(r.token);
   }
 
@@ -119,13 +184,32 @@ export default function VotarClient() {
     </div>
   );
 
-  // Sin token, o token inválido → pedir código
-  const necesitaCodigo = !token || (sesion && !sesion.ok);
-  if (!cargando && necesitaCodigo) {
+  const spinner = (
+    <main className="min-h-screen bg-[#f4f6fb]">
+      {header}
+      <div className="flex items-center justify-center py-24 text-gray-400">
+        <Loader2 className="animate-spin" />
+      </div>
+    </main>
+  );
+
+  if (!tokenListo) return spinner;
+
+  // Sin token (o credencial anulada) → pedir colegiatura + código
+  if (!token) {
     return (
       <main className="min-h-screen bg-[#f4f6fb]">
         {header}
         <div className="mx-auto max-w-md px-4 py-10">
+          {credencialInvalida && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+              <span>
+                Tu credencial de votante ya no es válida (la asistencia fue
+                retirada o la asamblea se cerró). Acércate a la mesa de registro.
+              </span>
+            </div>
+          )}
           <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h1 className="text-lg font-bold text-codia-dark">Acceso a votación</h1>
             <p className="mt-1 text-sm text-gray-600">
@@ -145,6 +229,7 @@ export default function VotarClient() {
                 value={codigo}
                 onChange={(e) => setCodigo(e.target.value)}
                 placeholder="Código de votante"
+                autoCapitalize="characters"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-lg uppercase outline-none focus:border-codia"
                 required
               />
@@ -155,8 +240,10 @@ export default function VotarClient() {
               )}
               <button
                 type="submit"
-                className="w-full rounded-lg bg-codia py-3 font-semibold text-white hover:bg-codia-dark"
+                disabled={entrando}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-codia py-3 font-semibold text-white hover:bg-codia-dark disabled:opacity-60"
               >
+                {entrando && <Loader2 className="animate-spin" size={18} />}
                 Entrar a votar
               </button>
             </form>
@@ -166,29 +253,47 @@ export default function VotarClient() {
     );
   }
 
-  if (cargando || !sesion) {
+  if (!sesion) {
+    if (!intentado || !sinConexion) return spinner;
     return (
       <main className="min-h-screen bg-[#f4f6fb]">
         {header}
-        <div className="flex items-center justify-center py-24 text-gray-400">
-          <Loader2 className="animate-spin" />
+        <div className="mx-auto max-w-md px-4 py-10">
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+            <WifiOff className="mx-auto mb-3 text-gray-400" size={36} />
+            <p className="font-semibold text-codia-dark">Sin conexión</p>
+            <p className="mt-1 text-sm text-gray-500">
+              No se pudo contactar el servidor. Reintentando automáticamente…
+            </p>
+          </div>
         </div>
       </main>
     );
   }
 
   const ini = sesion.iniciativa;
+  const sel = opcionDe(seleccion);
 
   return (
     <main className="min-h-screen bg-[#f4f6fb]">
       {header}
       <div className="mx-auto max-w-md px-4 py-8">
+        {sinConexion && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+            <WifiOff size={16} /> Sin conexión, reintentando…
+          </div>
+        )}
+        {aviso && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+            <span>{aviso}</span>
+          </div>
+        )}
+
         {!ini ? (
           <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
             <Loader2 className="mx-auto mb-3 animate-spin text-codia" size={32} />
-            <p className="font-semibold text-codia-dark">
-              Esperando una votación
-            </p>
+            <p className="font-semibold text-codia-dark">Esperando una votación</p>
             <p className="mt-1 text-sm text-gray-500">
               Cuando el presidente abra una iniciativa, aparecerá aquí
               automáticamente.
@@ -199,11 +304,9 @@ export default function VotarClient() {
             <CheckCircle2 className="mx-auto mb-3 text-emerald-600" size={40} />
             <p className="text-sm text-gray-500">{ini.titulo}</p>
             <p className="mt-2 text-lg font-bold text-codia-dark">
-              Tu voto: {etiqueta(sesion.mi_voto)}
+              Tu voto: {opcionDe(sesion.mi_voto)?.label ?? ""}
             </p>
-            <p className="mt-3 text-sm text-gray-500">
-              Esperando la siguiente votación…
-            </p>
+            <p className="mt-3 text-sm text-gray-500">Esperando la siguiente votación…</p>
           </div>
         ) : (
           <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -214,26 +317,57 @@ export default function VotarClient() {
             {ini.descripcion && (
               <p className="mt-2 text-sm text-gray-600">{ini.descripcion}</p>
             )}
-            <div className="mt-6 space-y-3">
-              {OPCIONES.map(({ key, label, cls, Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => votar(key)}
-                  disabled={enviando !== null}
-                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 text-lg font-bold text-white transition disabled:opacity-60 ${cls}`}
+
+            {!sel ? (
+              <>
+                <div className="mt-6 space-y-3">
+                  {OPCIONES.map(({ key, label, cls, Icon }) => (
+                    <button
+                      key={key}
+                      onClick={() => setSeleccion(key)}
+                      className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 text-lg font-bold text-white transition ${cls}`}
+                    >
+                      <Icon size={22} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-4 text-center text-xs text-gray-400">
+                  Elige una opción; después te pediremos confirmarla.
+                </p>
+              </>
+            ) : (
+              <div className="mt-6">
+                <p className="text-center text-sm text-gray-600">Vas a votar</p>
+                <div
+                  className={`mt-2 flex items-center justify-center gap-2 rounded-xl py-4 text-xl font-extrabold text-white ${sel.cls}`}
                 >
-                  {enviando === key ? (
+                  <sel.Icon size={24} /> {sel.label}
+                </div>
+                <button
+                  onClick={confirmar}
+                  disabled={enviando}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-codia py-4 text-lg font-bold text-white hover:bg-codia-dark disabled:opacity-60"
+                >
+                  {enviando ? (
                     <Loader2 className="animate-spin" size={22} />
                   ) : (
-                    <Icon size={22} />
+                    <CheckCircle2 size={22} />
                   )}
-                  {label}
+                  Confirmar mi voto
                 </button>
-              ))}
-            </div>
-            <p className="mt-4 text-center text-xs text-gray-400">
-              Tu voto queda registrado a tu nombre.
-            </p>
+                <button
+                  onClick={() => setSeleccion(null)}
+                  disabled={enviando}
+                  className="mt-2 w-full rounded-xl border border-gray-300 py-3 font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Cambiar
+                </button>
+                <p className="mt-4 text-center text-xs text-gray-400">
+                  Tu voto queda registrado a tu nombre y no se puede modificar.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

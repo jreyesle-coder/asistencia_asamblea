@@ -46,12 +46,9 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(redirectUrl);
     }
 
-    if (user && pathname === "/login") {
-      const redirectUrl = request.nextUrl.clone();
-      redirectUrl.pathname = "/";
-      return NextResponse.redirect(redirectUrl);
-    }
-
+    // Nota: /login decide por sí misma si redirige a "/" (sólo cuando el
+    // usuario tiene perfil activo); hacerlo aquí provocaba un bucle de
+    // redirecciones para usuarios de Auth sin fila en profiles.
     return response;
   } catch (e) {
     // Ante cualquier fallo (config o red), no tumbamos el sitio: dejamos pasar.
