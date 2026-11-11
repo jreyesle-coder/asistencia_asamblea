@@ -9,6 +9,23 @@
 --  6) las funciones privilegiadas no son ejecutables por anon
 -- =====================================================================
 
+-- 0) Saneo previo (idempotente):
+--    a) iniciativas que quedaron 'abiertas' en asambleas ya cerradas (el
+--       cerrar_asamblea de 0008 no las tocaba);
+--    b) si por una doble pulsación hubiera dos 'abiertas' en la misma asamblea,
+--       se conserva la más reciente (si no, el índice único de abajo fallaría).
+update iniciativas i set estado = 'cerrada', cerrada_at = coalesce(i.cerrada_at, now())
+from asambleas a
+where a.id = i.asamblea_id and a.estado = 'cerrada' and i.estado = 'abierta';
+
+update iniciativas set estado = 'cerrada', cerrada_at = coalesce(cerrada_at, now())
+where estado = 'abierta' and id in (
+  select id from (
+    select id, row_number() over (partition by asamblea_id order by id desc) as rn
+    from iniciativas where estado = 'abierta'
+  ) d where d.rn > 1
+);
+
 -- 1) Sólo una iniciativa 'abierta' por asamblea (atómico, sin carreras)
 create unique index if not exists iniciativas_una_abierta_idx
   on iniciativas (asamblea_id) where estado = 'abierta';
@@ -31,15 +48,28 @@ begin
   if p_iniciativa_id is not null and p_iniciativa_id <> v_ini then
     return jsonb_build_object('ok', false, 'motivo', 'cambio');
   end if;
+  -- Inserción condicionada a que la iniciativa siga abierta en este instante
+  -- (un cierre entre el select y el insert no cuela un voto tardío).
   insert into votos (iniciativa_id, asambleista_id, asambleista_nombre, colegiatura, delegacion, opcion)
-  values (v_ini, v_aid, v_nombre, v_col, v_del, p_opcion)
+  select v_ini, v_aid, v_nombre, v_col, v_del, p_opcion
+  where exists (select 1 from iniciativas where id = v_ini and estado = 'abierta')
   on conflict (iniciativa_id, asambleista_id) do nothing;
+  if not found then
+    -- No insertó: o ya había votado (conflicto) o se cerró; lo decide la lectura
+    if exists (select 1 from votos where iniciativa_id = v_ini and asambleista_id = v_aid) then
+      return jsonb_build_object('ok', true);
+    end if;
+    return jsonb_build_object('ok', false, 'motivo', 'cerrada');
+  end if;
   return jsonb_build_object('ok', true);
 end $$;
 grant execute on function emitir_voto(text, text, bigint) to anon, authenticated;
 
 -- 3) El acta nominal usa las columnas desnormalizadas (nombre/colegiatura/delegación);
 --    la FK no debe arrastrar los votos si se recarga el padrón.
+--    OJO: una recarga con `truncate ... asambleistas ... cascade` (patrón de
+--    0002/0004/0006) vaciaría TAMBIÉN votos. Para futuras recargas usar
+--    `delete from asistencia; delete from asambleistas;` + insert.
 alter table votos alter column asambleista_id drop not null;
 alter table votos drop constraint if exists votos_asambleista_id_fkey;
 alter table votos add constraint votos_asambleista_id_fkey

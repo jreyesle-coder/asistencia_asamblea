@@ -3,6 +3,8 @@
 -- Roles presidente/tecnología, credencial de votante por asistencia,
 -- iniciativas + votos (nominal), y funciones de presidente/votante.
 -- Ejecutar UNA vez en Supabase → SQL Editor.
+-- NO re-ejecutar después de la 0010: volvería a crear emitir_voto(text,text)
+-- y dejaría dos sobrecargas (ambigüedad en PostgREST).
 -- =====================================================================
 
 -- 1) Roles nuevos ------------------------------------------------------

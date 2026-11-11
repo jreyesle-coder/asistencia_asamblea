@@ -16,7 +16,7 @@ export interface Iniciativa {
 export interface Voto {
   id: number;
   iniciativa_id: number;
-  asambleista_id: number;
+  asambleista_id: number | null; // null si el asambleísta salió del padrón (0010)
   asambleista_nombre: string | null;
   colegiatura: number | null;
   delegacion: string | null;

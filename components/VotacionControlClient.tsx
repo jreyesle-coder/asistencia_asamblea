@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { createClient } from "@/lib/supabase/client";
 import { Loader2, Plus, Square, Users, AlertTriangle } from "lucide-react";
@@ -15,6 +16,12 @@ export default function VotacionControlClient({
   asambleaNombre: string | null;
 }) {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
+  // Un solo router.refresh() cuando otro equipo abre/cierra la asamblea
+  const refrescandoRef = useRef(false);
+  useEffect(() => {
+    refrescandoRef.current = false;
+  }, [asambleaId]);
   const [iniciativas, setIniciativas] = useState<Iniciativa[]>([]);
   // votos por iniciativa; las cerradas se consultan una sola vez (ya no cambian)
   const [votos, setVotos] = useState<Record<number, Voto[]>>({});
@@ -31,6 +38,20 @@ export default function VotacionControlClient({
   useEffect(() => setOrigin(window.location.origin), []);
 
   const cargar = useCallback(async () => {
+    // ¿Sigue siendo ésta la asamblea activa? Si otro equipo la abrió o cerró,
+    // recargamos el estado del servidor (mismo patrón que Registro/Reporte).
+    const { data: act, error: eAct } = await supabase
+      .from("asambleas")
+      .select("id")
+      .eq("estado", "activa")
+      .limit(1);
+    if (!eAct) {
+      const activaId = (act?.[0] as { id: number } | undefined)?.id ?? null;
+      if (activaId !== asambleaId && !refrescandoRef.current) {
+        refrescandoRef.current = true;
+        router.refresh();
+      }
+    }
     if (!asambleaId) {
       setCargando(false);
       return;
@@ -74,7 +95,7 @@ export default function VotacionControlClient({
     setPresentes(count ?? 0);
     setErrorCarga(null);
     setCargando(false);
-  }, [supabase, asambleaId]);
+  }, [supabase, asambleaId, router]);
 
   useEffect(() => {
     cargar();

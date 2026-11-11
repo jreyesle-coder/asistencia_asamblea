@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Download, Loader2, Printer, RefreshCw, Archive, CalendarPlus } from "lucide-react";
@@ -42,6 +42,11 @@ export default function ReporteClient({
   const [cerrarOpen, setCerrarOpen] = useState(false);
   const [abrirOpen, setAbrirOpen] = useState(false);
   const [ultimaAct, setUltimaAct] = useState<Date | null>(null);
+  // Un solo router.refresh() por cambio de asamblea
+  const refrescandoRef = useRef(false);
+  useEffect(() => {
+    refrescandoRef.current = false;
+  }, [activaIdProp]);
 
   const cargar = useCallback(async () => {
     const [{ data }, { data: act, error: eAct }] = await Promise.all([
@@ -57,7 +62,10 @@ export default function ReporteClient({
     // Si otro dispositivo abrió/cerró la asamblea, refrescamos el estado del servidor
     if (!eAct) {
       const activaId = (act?.[0] as { id: number } | undefined)?.id ?? null;
-      if (activaId !== activaIdProp) router.refresh();
+      if (activaId !== activaIdProp && !refrescandoRef.current) {
+        refrescandoRef.current = true;
+        router.refresh();
+      }
     }
   }, [supabase, router, activaIdProp]);
 
@@ -66,16 +74,22 @@ export default function ReporteClient({
     // Respaldo: refresca el reporte cada 5 s
     const id = setInterval(cargar, 5000);
     // Tiempo real: cualquier cambio en asistencia refresca al instante
+    // (agrupado: una sola consulta por ráfaga de eventos)
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const canal = supabase
       .channel("asistencia-reporte")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "asistencia" },
-        () => cargar()
+        () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(cargar, 300);
+        }
       )
       .subscribe();
     return () => {
       clearInterval(id);
+      if (timer) clearTimeout(timer);
       supabase.removeChannel(canal);
     };
   }, [cargar, supabase]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Download, Loader2, Printer } from "lucide-react";
 import {
@@ -36,8 +36,14 @@ export default function HistoricoClient() {
     })();
   }, [supabase]);
 
+  // Evita que una carga lenta de otra asamblea pise la seleccionada
+  const ultimoIdRef = useRef<number | null>(null);
+
   const cargarRows = useCallback(
     async (id: number) => {
+      ultimoIdRef.current = id;
+      setIniciativas([]);
+      setVotos({});
       const [{ data }, { data: inis }] = await Promise.all([
         supabase
           .from("historico_asistencia")
@@ -50,6 +56,7 @@ export default function HistoricoClient() {
           .eq("asamblea_id", id)
           .order("id"),
       ]);
+      if (ultimoIdRef.current !== id) return;
       setRows((data as HistoricoRow[]) ?? []);
       // Votaciones de la asamblea (los votos quedan en BD aunque se cierre)
       const lista = (inis as Iniciativa[]) ?? [];
@@ -58,6 +65,7 @@ export default function HistoricoClient() {
           supabase.from("votos").select("*").eq("iniciativa_id", i.id).order("hora")
         )
       );
+      if (ultimoIdRef.current !== id) return;
       const map: Record<number, Voto[]> = {};
       lista.forEach((i, k) => (map[i.id] = (res[k].data as Voto[]) ?? []));
       setIniciativas(lista);

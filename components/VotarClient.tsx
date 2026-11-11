@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Loader2,
@@ -57,6 +57,13 @@ export default function VotarClient() {
   const [codigo, setCodigo] = useState("");
   const [errFallback, setErrFallback] = useState<string | null>(null);
   const [entrando, setEntrando] = useState(false);
+  // Guardas contra respuestas fuera de orden (redes móviles lentas): sólo se
+  // aplica la respuesta más reciente y sólo si sigue siendo el mismo token.
+  const tokenRef = useRef<string | null>(null);
+  const seqRef = useRef(0);
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
 
   // Tomar token del URL (?t=) o del almacenamiento local
   useEffect(() => {
@@ -75,7 +82,10 @@ export default function VotarClient() {
 
   const cargar = useCallback(async () => {
     if (!token) return;
+    const seq = ++seqRef.current;
     const { data, error } = await supabase.rpc("votante_sesion", { p_token: token });
+    // Respuesta tardía (ya hubo otra más nueva) o de un token anterior: se ignora
+    if (seq !== seqRef.current || tokenRef.current !== token) return;
     setIntentado(true);
     if (error || !data) {
       // Fallo de red/servidor: conservamos la sesión anterior y avisamos
@@ -92,6 +102,11 @@ export default function VotarClient() {
       setToken(null);
       return;
     }
+    if (s.ya_voto) {
+      // El voto ya consta (aunque la respuesta de emitir_voto se haya perdido)
+      setAviso(null);
+      setSeleccion(null);
+    }
     setSesion(s);
   }, [supabase, token]);
 
@@ -103,11 +118,12 @@ export default function VotarClient() {
     return () => clearInterval(id);
   }, [token, cargar]);
 
-  // Si cambia la iniciativa en pantalla, descartamos cualquier selección previa
+  // Si cambia la iniciativa en pantalla, descartamos la selección previa.
+  // El aviso NO se limpia aquí: debe seguir visible tras un 'cambio'/'cerrada'
+  // (se limpia cuando el votante vuelve a elegir una opción).
   const iniId = sesion?.iniciativa?.id ?? null;
   useEffect(() => {
     setSeleccion(null);
-    setAviso(null);
   }, [iniId]);
 
   async function confirmar() {
@@ -163,6 +179,7 @@ export default function VotarClient() {
     localStorage.setItem(TOKEN_KEY, r.token);
     setCredencialInvalida(false);
     setSesion(null);
+    setIntentado(false);
     setToken(r.token);
   }
 
@@ -324,7 +341,10 @@ export default function VotarClient() {
                   {OPCIONES.map(({ key, label, cls, Icon }) => (
                     <button
                       key={key}
-                      onClick={() => setSeleccion(key)}
+                      onClick={() => {
+                        setAviso(null);
+                        setSeleccion(key);
+                      }}
                       className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 text-lg font-bold text-white transition ${cls}`}
                     >
                       <Icon size={22} />

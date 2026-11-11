@@ -26,6 +26,7 @@ import AbrirAsambleaModal from "@/components/AbrirAsambleaModal";
 
 interface Credencial {
   nombre: string;
+  colegiatura: number | null;
   token: string;
   codigo: string;
   yaEstaba: boolean;
@@ -59,6 +60,12 @@ export default function RegistroClient({
   const [total, setTotal] = useState(0);
   const [presentes, setPresentes] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Un solo router.refresh() por cambio de asamblea (los eventos realtime
+  // llegan en ráfaga al cerrar: un DELETE por fila de asistencia).
+  const refrescandoRef = useRef(false);
+  useEffect(() => {
+    refrescandoRef.current = false;
+  }, [activaIdProp]);
 
   const cargarConteos = useCallback(async () => {
     const [{ count: t }, { count: p }, { data: act, error: eAct }] =
@@ -73,7 +80,10 @@ export default function RegistroClient({
     // servidor para bloquear/desbloquear el registro sin recargar a mano.
     if (!eAct) {
       const activaId = (act?.[0] as { id: number } | undefined)?.id ?? null;
-      if (activaId !== activaIdProp) router.refresh();
+      if (activaId !== activaIdProp && !refrescandoRef.current) {
+        refrescandoRef.current = true;
+        router.refresh();
+      }
     }
   }, [supabase, router, activaIdProp]);
 
@@ -84,16 +94,22 @@ export default function RegistroClient({
     // Respaldo: refresca los conteos cada 5 s
     const id = setInterval(cargarConteos, 5000);
     // Tiempo real: cualquier cambio en asistencia refresca al instante
+    // (agrupado: una sola consulta por ráfaga de eventos)
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const canal = supabase
       .channel("asistencia-registro")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "asistencia" },
-        () => cargarConteos()
+        () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(cargarConteos, 300);
+        }
       )
       .subscribe();
     return () => {
       clearInterval(id);
+      if (timer) clearTimeout(timer);
       supabase.removeChannel(canal);
     };
   }, [cargarConteos, supabase]);
@@ -158,6 +174,7 @@ export default function RegistroClient({
     }
     mostrarCredencial({
       nombre: a.nombre,
+      colegiatura: a.colegiatura ?? null,
       token: ex.voto_token,
       codigo: ex.voto_codigo,
       yaEstaba,
@@ -192,6 +209,7 @@ export default function RegistroClient({
     }
     mostrarCredencial({
       nombre: a.nombre,
+      colegiatura: a.colegiatura ?? null,
       token: data.voto_token,
       codigo: data.voto_codigo,
       yaEstaba: false,
@@ -338,10 +356,20 @@ export default function RegistroClient({
                 Para votar, que <b>escanee este código</b> con su teléfono, o que
                 ingrese en <b>{origin.replace(/^https?:\/\//, "")}/votar</b>:
               </p>
-              <p className="mt-2 text-xs text-gray-500">Código de votante</p>
-              <p className="font-mono text-2xl font-extrabold tracking-widest text-codia-dark">
-                {credencial.codigo}
-              </p>
+              <div className="mt-2 flex flex-wrap justify-center gap-x-6 gap-y-1 sm:justify-start">
+                <div>
+                  <p className="text-xs text-gray-500">Colegiatura</p>
+                  <p className="font-mono text-2xl font-extrabold tracking-widest text-codia-dark">
+                    {credencial.colegiatura ?? "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Código de votante</p>
+                  <p className="font-mono text-2xl font-extrabold tracking-widest text-codia-dark">
+                    {credencial.codigo}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={limpiar}
                 className="mt-3 rounded-lg bg-codia px-4 py-2 text-sm font-semibold text-white hover:bg-codia-dark"
